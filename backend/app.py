@@ -16,7 +16,9 @@ hf_token = os.getenv("HUGGINGFACE_API_KEY")
 login(token=hf_token)  # Use token securely
 
 # Load Llama 3 chatbot model
-chatbot = pipeline("text-generation", model="meta-llama/Meta-Llama-3.1-8B", device_map="auto")
+from accelerate import disk_offload
+
+chatbot = pipeline("text-generation", model="meta-llama/Meta-Llama-3.1-8B", device_map=disk_offload("/mnt"))
 
 @app.route("/chat", methods=["POST"])
 def chat():
