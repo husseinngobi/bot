@@ -32,6 +32,10 @@ uploadInput.addEventListener('change', () => {
     } else {
       appendMessage(`❌ ${data.message}`, "bot");
     }
+  })
+  .catch(error => {
+    appendMessage("❌ Error processing the file.", "bot");
+    console.error("Upload Error:", error);
   });
 });
 
@@ -41,7 +45,7 @@ sendMessageButton.addEventListener("click", () => {
   if (!message) return;
 
   appendMessage(message, "user");
-  generateBotReply(message); // Bot replies based on user input
+  generateBotReply(message); // Send message to backend
   userMessageInput.value = ""; // Clear input after sending
 });
 
@@ -54,15 +58,21 @@ function appendMessage(text, type = "bot") {
   chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-// Simple bot response generator
+// Connect frontend to Flask backend
 function generateBotReply(userText) {
-  let reply = "🤖 Interesting... Tell me more!";
-  
-  if (userText.toLowerCase().includes("hello")) reply = "👋 Hi! How can I assist you today?";
-  if (userText.toLowerCase().includes("face")) reply = "🧠 I can analyze faces in images and videos!";
-  if (userText.toLowerCase().includes("how are you")) reply = "I'm just a bot, but thanks for asking! 🚀";
+  appendMessage("🤖 Thinking...", "bot");
 
-  setTimeout(() => {
-    appendMessage(reply, "bot");
-  }, 1000);
+  fetch("http://10.0.0.4:5000/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: userText })
+  })
+  .then(response => response.json())
+  .then(data => {
+    appendMessage(data.response, "bot");
+  })
+  .catch(error => {
+    appendMessage("❌ Oops! Something went wrong.", "bot");
+    console.error("Chatbot Error:", error);
+  });
 }
