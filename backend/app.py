@@ -1,9 +1,10 @@
 import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from transformers import pipeline
+from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
+import torch
 from huggingface_hub import login
-from dotenv import load_dotenv  # Import dotenv
+from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
@@ -15,12 +16,24 @@ CORS(app)  # Allow cross-origin requests
 hf_token = os.getenv("HUGGINGFACE_API_KEY")
 login(token=hf_token)  # Use token securely
 
-# Load Llama 3 chatbot model
-from accelerate.utils import disk_offload
+# Model details
+model_name = "meta-llama/Meta-Llama-3.1-8B"
+offload_directory = "/mnt/hf_cache"  # Ensure this directory has enough space
 
-offload_directory = "/mnt/hf_cache"  # Choose a suitable directory with enough space
+# Load tokenizer
+tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-chatbot = pipeline("text-generation", model="meta-llama/Meta-Llama-3.1-8B", device_map=disk_offload(offload_directory))
+# Load model with disk offloading
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    torch_dtype=torch.float16,  # Optimize memory usage
+    device_map="auto",  # Automatically allocate resources
+    offload_folder=offload_directory  # Offload parts of the model to disk
+)
+
+# Initialize chatbot pipeline
+chatbot = pipeline("text-generation", model=model, tokenizer=tokenizer)
+
 @app.route("/chat", methods=["POST"])
 def chat():
     user_msg = request.json["message"]
