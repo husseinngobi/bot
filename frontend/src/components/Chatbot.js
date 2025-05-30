@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { fetchChatResponse, uploadFile } from "./api"; 
+import { fetchChatResponse, uploadFile } from "./api";
 import './styles.css';
 
 const Chatbot = () => {
@@ -28,18 +28,10 @@ const Chatbot = () => {
     addMessage("🔍 Analyzing media...", true);
 
     try {
-      setIsLoading(true);
-      const formData = new FormData();
-      formData.append('image', selectedFile);
-
-      const response = await fetch(UPLOAD_ENDPOINT, {
-        method: 'POST',
-        body: formData
-      });
-
-      const data = await response.json();
-      addMessage(data.message, true);
-      
+    setIsLoading(true);
+    const data = await uploadFile(selectedFile);
+    addMessage(data.message, true);
+    
       if (selectedFile.type.startsWith('image')) {
         addMessage("✅ Found 3 faces in the image", true);
         addMessage("👤 Person 1: 92% confidence", true);
@@ -62,22 +54,14 @@ const Chatbot = () => {
     addMessage("🤖 Thinking...", true);
 
     try {
-      setIsLoading(true);
-      const response = await fetch(CHAT_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ message: inputText })
-      });
-
-      const data = await response.json();
-      setMessages(prev => prev.filter(msg => msg.text !== "🤖 Thinking..."));
-      addMessage(data.response, true);
-    } catch (error) {
-      setMessages(prev => prev.filter(msg => msg.text !== "🤖 Thinking..."));
-      addMessage("❌ Error connecting to AI service", true);
-      console.error("Chat error:", error);
+    setIsLoading(true);
+    const data = await fetchChatResponse(inputText);
+    setMessages(prev => prev.filter(msg => msg.text !== "🤖 Thinking..."));
+    addMessage(data.response, true);
+  } catch (error) {
+    setMessages(prev => prev.filter(msg => msg.text !== "🤖 Thinking..."));
+    addMessage("❌ Error connecting to AI service", true);
+    console.error("Chat error:", error);
     } finally {
       setIsLoading(false);
     }
