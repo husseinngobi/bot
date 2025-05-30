@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { fetchChatResponse, uploadFile } from "./api"; 
 import './styles.css';
 
 const Chatbot = () => {
@@ -11,7 +12,7 @@ const Chatbot = () => {
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef(null);
 
-  const API_BASE = "http://localhost:5000";
+  const API_BASE = "http://10.0.0.4:5000";  // Corrected backend address
   const CHAT_ENDPOINT = `${API_BASE}/chat`;
   const UPLOAD_ENDPOINT = `${API_BASE}/upload`;
 
