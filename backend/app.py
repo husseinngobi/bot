@@ -1,10 +1,12 @@
 import os
 import uuid
-import subprocess
 import json
+import traceback
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
+from werkzeug.utils import secure_filename
 from deepface import DeepFace
+import ollama  # ✅ Use Ollama's Python API
 
 # Create Flask app
 app = Flask(__name__)
@@ -15,10 +17,7 @@ UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Choose your model here: "phi3" or "mistral"
-OLLAMA_MODEL = "mistral"
-
-# Store chat history
-chat_history = []
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "phi3").lower()
 
 @app.route("/upload", methods=["POST"])
 def upload():
@@ -30,68 +29,81 @@ def upload():
     if file.filename == '':
         return jsonify({"error": "No selected file"}), 400
 
-    # Save file with a unique name
-    filename = f"{uuid.uuid4().hex}_{file.filename}"
+    # Secure and uniquely name the uploaded file
+    safe_name = secure_filename(file.filename)
+    filename = f"{uuid.uuid4().hex}_{safe_name}"
     file_path = os.path.join(UPLOAD_FOLDER, filename)
     file.save(file_path)
 
     try:
-        # Analyze the image using DeepFace
+        # Analyze image using DeepFace
         analysis = DeepFace.analyze(
             img_path=file_path,
             actions=['age', 'gender', 'emotion'],
             enforce_detection=False
         )
 
-        result = {
+        return jsonify({
             "message": "✅ Face analysis complete",
-            "results": analysis
-        }
-        return jsonify(result)
+            "results": analysis,
+            "filename": filename  # optional for download
+        })
 
     except Exception as e:
-        return jsonify({"error": "Face analysis failed", "details": str(e)}), 500
+        traceback.print_exc()
+        return jsonify({
+            "error": "Face analysis failed",
+            "details": str(e)
+        }), 500
 
 @app.route("/download/<filename>", methods=["GET"])
 def download(filename):
     """Allows downloading uploaded files"""
     file_path = os.path.join(UPLOAD_FOLDER, filename)
-    
+
     if not os.path.exists(file_path):
         return jsonify({"error": "File not found"}), 404
-    
+
     return send_file(file_path, as_attachment=True)
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    """Handles chatbot interactions using Ollama with system prompt injection"""
+    """Handles chatbot interactions using Ollama Python API"""
     user_msg = request.json.get("message")
     print(f"Received message: {user_msg}")
 
     if not user_msg:
         return jsonify({"error": "Message field is missing"}), 400
 
-    # Inject system-style prompt before the user's message
-    system_prompt = (
-        "You are a face recognition bot created by Engineer Hussein Ngobi. "
-        "Your job is to help users with tasks related to face detection, identifying people from a database, "
-        "estimating age, gender, emotion, and triggering alerts. Always stay on topic. "
-        "Do not say you're Mistral or an AI model. Use clear, friendly, expert language.\n\n"
-        f"User: {user_msg}\nAssistant:"
-    )
-
     try:
-        result = subprocess.run(
-            ["ollama", "run", OLLAMA_MODEL],
-            input=system_prompt.encode(),
-            capture_output=True,
-            check=True
+        response = ollama.chat(
+            model=OLLAMA_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a face recognition bot created by Engineer Hussein Ngobi. "
+                        "Your job is to help users with tasks related to face detection, identifying people from a database, "
+                        "estimating age, gender, emotion, and triggering alerts. Always stay on topic. "
+                        "Do not say you're Mistral, phi3 or an AI model. Use clear, friendly, expert language."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": user_msg
+                }
+            ]
         )
-        response_text = result.stdout.decode().strip()
-        return jsonify({"response": response_text})
 
-    except subprocess.CalledProcessError as e:
-        return jsonify({"error": "Ollama failed", "details": e.stderr.decode()}), 500
+        reply = response['message']['content']
+        return jsonify({"response": reply})
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            "error": "Ollama chat failed",
+            "details": str(e)
+        }), 500
 
 @app.route("/", methods=["GET"])
 def home():
