@@ -1,13 +1,14 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { fetchChatResponse, uploadFile } from "./api";
 import "./styles.css";
+import Sidebar from "./Sidebar";
 
 const Chatbot = () => {
-  // Multi-session chat handling
   const [chatSessions, setChatSessions] = useState([
     {
       id: 1,
-      name: "Chat 1",
+      title: "Chat 1",
+      timestamp: Date.now(),
       messages: [
         {
           text: "Hello! Upload an image or video and I'll analyze it 😊",
@@ -17,9 +18,9 @@ const Chatbot = () => {
     },
   ]);
   const [currentSessionId, setCurrentSessionId] = useState(1);
+  const [modalImage, setModalImage] = useState(null);
   const messages = chatSessions.find((s) => s.id === currentSessionId)?.messages || [];
 
-  // Other chatbot states
   const [inputText, setInputText] = useState("");
   const [file, setFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
@@ -28,36 +29,38 @@ const Chatbot = () => {
   const fileInputRef = useRef(null);
   const chatDisplayRef = useRef(null);
 
-  const API_BASE = "http://10.0.0.4:5000";
-  const CHAT_ENDPOINT = `${API_BASE}/chat`;
-  const UPLOAD_ENDPOINT = `${API_BASE}/upload`;
+  const toggleSidebar = () => setIsSidebarOpen((prev) => !prev);
 
-  // Sidebar toggle
-  const toggleSidebar = () => {
-    setIsSidebarOpen((prev) => !prev);
-  };
+  const addMessage = useCallback((text, isBot) => {
+  const newMsg = { text, isBot };
+  setChatSessions(prev =>
+    prev.map(s =>
+      s.id === currentSessionId
+        ? { ...s, messages: [...s.messages, newMsg] }
+        : s
+    )
+  );
+}, [currentSessionId]);
 
-  // Add message for the active session
-  const addMessage = (text, isBot) => {
-    const newMsg = { text, isBot };
-    setChatSessions((prevSessions) =>
-      prevSessions.map((s) =>
-        s.id === currentSessionId ? { ...s, messages: [...s.messages, newMsg] } : s
-      )
-    );
-  };
-
-  // Handle file selection & upload
   const handleFileChange = async (e) => {
     const selectedFile = e.target.files[0];
     if (!selectedFile) return;
 
-    // Cleanup old preview url before setting new one
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
+    if (!selectedFile.type.startsWith("image/") && !selectedFile.type.startsWith("video/")) {
+      addMessage("❌ Unsupported file type. Please upload an image or video.", true);
+      return;
     }
+    if (
+  (selectedFile.type.startsWith("image/") && selectedFile.size > 5 * 1024 * 1024) ||
+  (selectedFile.type.startsWith("video/") && selectedFile.size > 50 * 1024 * 1024)
+) {
+  addMessage("❌ File too large. Max size is 5MB for images, 50MB for videos.", true);
+  return;
+}
 
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
     setFile(selectedFile);
+
     const url = URL.createObjectURL(selectedFile);
     setPreviewUrl(url);
 
@@ -67,57 +70,90 @@ const Chatbot = () => {
     try {
       setIsLoading(true);
       const data = await uploadFile(selectedFile);
+    
 
-      // Remove "Analyzing media..." placeholder message
-      setChatSessions((prevSessions) =>
-        prevSessions.map((s) =>
-          s.id === currentSessionId
-            ? { ...s, messages: s.messages.filter((msg) => msg.text !== "🔍 Analyzing media...") }
-            : s
-        )
-      );
-
-      if (data.message) {
-        addMessage(data.message, true);
-      }
-
-      // Display DeepFace analysis results if available (age, gender, emotion)
-      if (data.results) {
-        if (Array.isArray(data.results)) {
-          // If results is an array (multiple faces)
-          data.results.forEach((face, i) => {
-            addMessage(
-              `👤 Person ${i + 1}: Age ${face.age}, Gender ${face.gender}, Emotion ${face.emotion}`,
-              true
-            );
-          });
-        } else if (typeof data.results === "object") {
-          // Single face
-          const face = data.results;
-          addMessage(
-            `👤 Detected: Age ${face.age}, Gender ${face.gender}, Emotion ${face.emotion}`,
-            true
-          );
+// Remove "Analyzing media..." message
+setChatSessions((prevSessions) =>
+  prevSessions.map((s) =>
+    s.id === currentSessionId
+      ? {
+          ...s,
+          messages: s.messages.filter((msg) => msg.text !== "🔍 Analyzing media..."),
         }
-      }
+      : s
+  )
+);
+
+// Show error if upload failed
+if (!data.success) {
+  addMessage(`❌ Error: ${data.error}`, true);
+  return;
+}
+
+// Show annotated image
+if (data.annotatedImageUrl || data.annotated_image_url) {
+  const url = data.annotatedImageUrl || data.annotated_image_url;
+  addMessage(
+    <div>
+      <p>📷 <em>Click to view annotated image</em></p>
+      <img
+        src={url}
+        alt="Annotated"
+        className="annotated-thumbnail"
+        style={{ maxWidth: "200px", borderRadius: "10px", cursor: "pointer" }}
+        onClick={() => setModalImage(url)}
+        onError={e => e.target.style.display = 'none'}
+      />
+    </div>,
+    true
+  );
+}
+
+// Show DeepFace results with face count
+if (Array.isArray(data.results) && data.results.length > 0) {
+  addMessage(`🧠 Detected ${data.results.length} face(s).`, true);
+  data.results.forEach((face, i) => {
+    addMessage(
+      `👤 Person ${i + 1}: Age ${face.age}, Gender ${face.gender}, Emotion ${face.emotion}`,
+      true
+    );
+  });
+} else if (Array.isArray(data.results) && data.results.length === 0) {
+  addMessage("⚠️ No faces were detected in the uploaded image.", true);
+}
+
+
+// Show identity info
+if (data.person_info && data.person_info.name) {
+  const { name, title = "Unknown", authorized = false } = data.person_info;
+  addMessage(
+    `🧾 Identity: ${name} (${title}) — ${authorized ? "✅ Authorized" : "❌ Not Authorized"}`,
+    true
+  );
+}
+
+// Show bot reply
+if (data.botReply || data.bot_reply) {
+  addMessage(`🧠 ${data.botReply || data.bot_reply}`, true);
+}
     } catch (error) {
-      // Remove "Analyzing media..." placeholder message
+      console.error("Upload error:", error);
       setChatSessions((prevSessions) =>
         prevSessions.map((s) =>
           s.id === currentSessionId
-            ? { ...s, messages: s.messages.filter((msg) => msg.text !== "🔍 Analyzing media...") }
+            ? {
+                ...s,
+                messages: s.messages.filter((msg) => msg.text !== "🔍 Analyzing media..."),
+              }
             : s
         )
       );
-
       addMessage("❌ Error processing the file", true);
-      console.error("Upload error:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Send chat messages
   const handleSend = async () => {
     if (!inputText.trim()) return;
 
@@ -136,15 +172,13 @@ const Chatbot = () => {
                 ...s,
                 messages: s.messages
                   .filter((msg) => msg.text !== "🤖 Thinking...")
-                  .concat({
-                    text: data.response,
-                    isBot: true,
-                  }),
+                  .concat({ text: data.response, isBot: true }),
               }
             : s
         )
       );
     } catch (error) {
+      console.error("Chat error:", error);
       setChatSessions((prevSessions) =>
         prevSessions.map((s) =>
           s.id === currentSessionId
@@ -152,26 +186,21 @@ const Chatbot = () => {
                 ...s,
                 messages: s.messages
                   .filter((msg) => msg.text !== "🤖 Thinking...")
-                  .concat({
-                    text: "❌ Error connecting to AI service",
-                    isBot: true,
-                  }),
+                  .concat({ text: "❌ Error connecting to AI service", isBot: true }),
               }
             : s
         )
       );
-      console.error("Chat error:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Manage sessions
   const handleNewChat = () => {
-    const newId = Date.now();
+    const newId = Date.now() + Math.floor(Math.random() * 1000);
     const newSession = {
       id: newId,
-      name: `Chat ${chatSessions.length + 1}`,
+      title: `Chat ${chatSessions.length + 1}`,
       messages: [
         {
           text: "Hello! Upload an image or video and I'll analyze it 😊",
@@ -181,7 +210,7 @@ const Chatbot = () => {
     };
     setChatSessions([...chatSessions, newSession]);
     setCurrentSessionId(newId);
-    setIsSidebarOpen(false); // auto close sidebar
+    setIsSidebarOpen(false);
   };
 
   const handleDeleteChat = (id) => {
@@ -190,13 +219,12 @@ const Chatbot = () => {
 
     if (id === currentSessionId) {
       if (filtered.length > 0) {
-        setCurrentSessionId(filtered[filtered.length - 1].id);
+        setCurrentSessionId(filtered[filtered.length - 1]?.id || 1);
       } else {
-        // Automatically create a new chat if no chats are left
         const newId = Date.now();
         const newSession = {
           id: newId,
-          name: "Chat 1",
+          title: "Chat 1",
           messages: [
             {
               text: "Hello! Upload an image or video and I'll analyze it 😊",
@@ -212,77 +240,61 @@ const Chatbot = () => {
 
   const switchSession = (id) => {
     setCurrentSessionId(id);
-    setIsSidebarOpen(false); // close sidebar after switching
+    setIsSidebarOpen(false);
   };
 
-  const triggerFileInput = () => {
-    fileInputRef.current.click();
+  const triggerFileInput = () => fileInputRef.current.click();
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") handleSend();
   };
 
-  const handleKeyPress = (e) => {
-    if (e.key === "Enter") {
-      handleSend();
-    }
-  };
-
-  // Cleanup object URLs on unmount or when previewUrl changes
   useEffect(() => {
     return () => {
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
   }, [previewUrl]);
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
-    if (chatDisplayRef.current) {
-      chatDisplayRef.current.scrollTop = chatDisplayRef.current.scrollHeight;
-    }
-  }, [messages]);
+  chatDisplayRef.current?.scrollTo({
+    top: chatDisplayRef.current.scrollHeight,
+    behavior: "smooth",
+  });
+}, [messages]); 
+
+useEffect(() => {
+  localStorage.setItem("chatSessions", JSON.stringify(chatSessions));
+  localStorage.setItem("currentSessionId", currentSessionId);
+}, [chatSessions, currentSessionId]);
+
+useEffect(() => {
+  try {
+    const saved = localStorage.getItem("chatSessions");
+    const savedId = localStorage.getItem("currentSessionId");
+    if (saved) setChatSessions(JSON.parse(saved));
+    if (savedId) setCurrentSessionId(Number(savedId));
+  } catch (error) {
+    console.error("Error restoring sessions from localStorage:", error);
+    localStorage.clear();
+  }
+}, []);
 
   return (
     <div className="chatbot-container">
-      {/* Sidebar Toggle */}
-      <button
-        className="sidebar-toggle"
-        onClick={toggleSidebar}
-        aria-label="Toggle chat sidebar"
-      >
+      <button className="sidebar-toggle" onClick={toggleSidebar} aria-label="Toggle chat sidebar">
         &#9776;
       </button>
 
-      {/* Sidebar Backdrop */}
-      {isSidebarOpen && <div className="sidebar-backdrop" onClick={toggleSidebar}></div>}
+      <Sidebar
+        chats={chatSessions}
+        selectedChatId={currentSessionId} // <-- Add this line
+        onSelectChat={switchSession}
+        onNewChat={handleNewChat}
+        onDeleteChat={handleDeleteChat}
+        isOpen={isSidebarOpen}
+        onToggle={toggleSidebar}
+      />
 
-      {/* Sidebar Panel */}
-      {isSidebarOpen && (
-        <div className="sidebar-panel">
-          <h2 className="sidebar-title">Chat History</h2>
-          <ul className="chat-list">
-            {chatSessions.map((session) => (
-              <li
-                key={session.id}
-                className={`chat-item ${session.id === currentSessionId ? "active" : ""}`}
-              >
-                <button onClick={() => switchSession(session.id)}>{session.name}</button>
-                <button
-                  className="delete-chat"
-                  onClick={() => handleDeleteChat(session.id)}
-                  aria-label={`Delete ${session.name}`}
-                >
-                  🗑
-                </button>
-              </li>
-            ))}
-          </ul>
-          <button className="new-chat" onClick={handleNewChat} aria-label="Start new chat">
-            ➕ New Chat
-          </button>
-        </div>
-      )}
-
-      {/* Header */}
       <div className="chatbot-header">
         <div className="avatar-container">
           <img
@@ -295,13 +307,12 @@ const Chatbot = () => {
         <h1>FACE-RECOGNITION BOT</h1>
       </div>
 
-      {/* Chat Display */}
-      <div className="chat-display" ref={chatDisplayRef}>
+      <div className="chat-display" ref={chatDisplayRef} aria-live="polite">
         {messages.map((msg, index) => (
-          <div key={index} className={`message ${msg.isBot ? "bot-message" : "user-message"}`}>
-            {msg.text}
-          </div>
-        ))}
+  <div key={index} className={`message ${msg.isBot ? "bot-message" : "user-message"}`}>
+    {typeof msg.text === "string" ? <span>{msg.text}</span> : msg.text}
+  </div>
+))}
         {isLoading && (
           <div className="message bot-message loading">
             <div className="loading-dot"></div>
@@ -311,20 +322,18 @@ const Chatbot = () => {
         )}
       </div>
 
-      {/* Input Area */}
       <div className="input-area">
         <input
-          type="text"
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          onKeyPress={handleKeyPress}
-          placeholder="Type your message here..."
-          className="text-input"
-          disabled={isLoading}
-          aria-label="Chat input"
-        />
+  type="text"
+  value={inputText}
+  onChange={(e) => setInputText(e.target.value)}
+  onKeyDown={handleKeyDown} // <-- updated here
+  placeholder="Type your message here..."
+  className="text-input"
+  disabled={isLoading}
+  aria-label="Chat input"
+/>
 
-        {/* File Upload */}
         <div className="file-upload-section">
           <label htmlFor="file-upload">Upload Image or Video:</label>
           <div className="file-input-wrapper">
@@ -359,6 +368,15 @@ const Chatbot = () => {
           {isLoading ? "Processing..." : "Send"}
         </button>
       </div>
+
+      {modalImage && (
+        <div className="modal-overlay" onClick={() => setModalImage(null)}>
+          <div className="modal-content">
+            <img src={modalImage} alt="Full View" className="modal-image" />
+            <button className="modal-close" aria-label="Close modal" onClick={() => setModalImage(null)}>Close</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

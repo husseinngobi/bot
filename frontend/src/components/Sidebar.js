@@ -4,12 +4,27 @@ import './styles.css';
 
 const Sidebar = ({ 
   chats, 
+  selectedChatId,
   onSelectChat, 
   onNewChat, 
   onDeleteChat, 
   isOpen, 
   onToggle 
 }) => {
+
+  const handleSelectChat = (id) => {
+    onSelectChat(id);
+    if (isOpen && onToggle) {
+      onToggle(); // Auto-close on mobile/small screen
+    }
+  };
+
+  const handleDeleteChat = (id, title) => {
+    const confirmDelete = window.confirm(`Delete "${title || `Chat ${id}`}"?`);
+    if (confirmDelete) {
+      onDeleteChat(id);
+    }
+  };
 
   return (
     <>
@@ -37,14 +52,18 @@ const Sidebar = ({
           )}
 
           {chats.map(({ id, title, timestamp }) => (
-            <li key={id} className="chat-item">
-              <button className="chat-select-btn" onClick={() => onSelectChat(id)}>
+            <li key={id} className={`chat-item ${selectedChatId === id ? 'active-chat' : ''}`}>
+              <button 
+                className="chat-select-btn" 
+                onClick={() => handleSelectChat(id)} 
+                tabIndex={0}
+              >
                 <div className="chat-title">{title || `Chat ${id}`}</div>
                 <div className="chat-timestamp">{new Date(timestamp).toLocaleString()}</div>
               </button>
               <button 
                 className="chat-delete-btn" 
-                onClick={() => onDeleteChat(id)} 
+                onClick={() => handleDeleteChat(id, title)} 
                 aria-label={`Delete chat ${title || id}`}
               >
                 &times;
