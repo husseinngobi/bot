@@ -15,6 +15,14 @@ A final-year project that combines face recognition, age/gender/emotion detectio
 * 📁 **Auto-cleanup** of old uploaded and annotated files
 * 🌐 **CORS-enabled** API for frontend integration
 * 🔒 **Authorization check** via `metadata.json` (e.g., staff, criminal, unknown)
+- 🖼️ Upload image or video for face detection
+- 🎥 Capture a photo or record a video directly using your webcam
+- 🤖 Get identity, emotion, age, and gender for detected faces
+- 💬 Chat with the bot — ask questions, get AI responses (via Ollama or GPT)
+- 🧾 See if a person is recognized, authorized, or marked as a criminal
+- 🧠 Face database lookup with tagging (staff, intruder, etc.)
+- 🗂️ Multiple chat sessions — start new chats, switch sessions, or delete history
+- 📸 View results with annotated thumbnails (clickable for full-size view)
 
 ---
 
